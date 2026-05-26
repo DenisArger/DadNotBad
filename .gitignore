@@ -1,0 +1,10 @@
+.idea/
+mobile/.expo/
+mobile/.claude/
+mobile/AGENTS.md
+mobile/CLAUDE.md
+mobile/node_modules/
+mobile/package-lock.json
+!mobile/yarn.lock
+*.log
+.DS_Store
