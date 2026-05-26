@@ -8,6 +8,9 @@ export type ScreenId =
   | 'childProfile'
   | 'learningPreferences'
   | 'home'
+  | 'topicDetails'
+  | 'progress'
+  | 'lessonError'
   | 'lesson';
 
 export type ExerciseType = 'multiple-choice' | 'text-input' | 'true-false';
@@ -64,10 +67,32 @@ export interface Lesson {
   exercises: Exercise[];
 }
 
+export interface TopicProgress {
+  topicId: string;
+  completedLessons: number;
+  totalLessons: number;
+  lastCompletedAt: string | null;
+  pointsEarned: number;
+}
+
+export interface ActiveLessonRef {
+  topicId: string;
+  lessonIndex: number;
+}
+
+export interface PracticeStreak {
+  currentDays: number;
+  bestDays: number;
+  lastCompletedOn: string | null;
+}
+
 export interface AppState {
   currentScreen: ScreenId;
   parent: ParentProfile;
   child: ChildProfile;
   selectedSubjectId: SubjectId;
   selectedGoalId: GoalId;
+  topicProgress: Record<string, TopicProgress>;
+  practiceStreak: PracticeStreak;
+  totalPoints: number;
 }
