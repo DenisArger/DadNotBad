@@ -13,7 +13,7 @@ export type ScreenId =
   | 'lessonError'
   | 'lesson';
 
-export type ExerciseType = 'multiple-choice' | 'text-input' | 'true-false';
+export type ExerciseType = 'multiple-choice' | 'text-input' | 'matching';
 
 export interface ParentProfile {
   emailOrPhone: string;
@@ -50,6 +50,12 @@ export interface ExerciseOption {
   label: string;
 }
 
+export interface ExerciseMatchingPair {
+  id: string;
+  left: string;
+  right: string;
+}
+
 export interface Exercise {
   id: string;
   type: ExerciseType;
@@ -57,6 +63,7 @@ export interface Exercise {
   hint: string;
   answer: string;
   options?: ExerciseOption[];
+  pairs?: ExerciseMatchingPair[];
 }
 
 export interface Lesson {
@@ -86,6 +93,30 @@ export interface PracticeStreak {
   lastCompletedOn: string | null;
 }
 
+export interface LessonHistoryEntry {
+  id: string;
+  topicId: string;
+  lessonId: string;
+  completedAt: string;
+  earnedPoints: number;
+  mistakeCount: number;
+}
+
+export interface PersistedLessonSession {
+  selectedTopicId: string | null;
+  activeLessonRef: ActiveLessonRef | null;
+  lessonStepIndex: number;
+  lessonAnswer: string;
+  lessonFeedback: string | null;
+  lessonCompleted: boolean;
+  lessonMistakes: number;
+  lessonEarnedPoints: number;
+  lastIncorrectExercise: Exercise | null;
+  similarExercise: Exercise | null;
+  isSimilarExerciseMode: boolean;
+  currentScreen: Extract<ScreenId, 'lesson' | 'lessonError'>;
+}
+
 export interface AppState {
   currentScreen: ScreenId;
   parent: ParentProfile;
@@ -95,4 +126,5 @@ export interface AppState {
   topicProgress: Record<string, TopicProgress>;
   practiceStreak: PracticeStreak;
   totalPoints: number;
+  lessonHistory: LessonHistoryEntry[];
 }

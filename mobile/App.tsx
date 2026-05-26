@@ -3,18 +3,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { goalOptions, starterLessonsByTopicId, starterTopics, subjects } from './src/domain/content';
-import { loadAppState, saveAppState } from './src/domain/storage';
 import {
-  ActiveLessonRef,
-  AppState,
-  Exercise,
-  GoalId,
-  PracticeStreak,
-  ScreenId,
-  SubjectId,
-  Topic,
-  TopicProgress,
-} from './src/domain/types';
+  formatDate as formatDateDomain,
+  getAchievements as getAchievementsDomain,
+  getNextLessonIndex as getNextLessonIndexDomain,
+  getNextLessonLabel as getNextLessonLabelDomain,
+  getProgressEntries as getProgressEntriesDomain,
+  getStreakMessage as getStreakMessageDomain,
+  getTopicProgressLabel as getTopicProgressLabelDomain,
+  getTopicProgressPercent as getTopicProgressPercentDomain,
+  getWeeklySummary as getWeeklySummaryDomain,
+} from './src/domain/lesson';
+import { loadAppState, saveAppState } from './src/domain/storage';
+import { useLessonSession } from './src/domain/useLessonSession';
+import { AppState, Exercise, ExerciseMatchingPair, GoalId, ScreenId, SubjectId, Topic, TopicProgress } from './src/domain/types';
 
 const initialState: AppState = {
   currentScreen: 'welcome',
@@ -35,6 +37,7 @@ const initialState: AppState = {
     lastCompletedOn: null,
   },
   totalPoints: 0,
+  lessonHistory: [],
 };
 
 const screenOrder: ScreenId[] = [
@@ -52,17 +55,9 @@ const screenOrder: ScreenId[] = [
 export default function App() {
   const [state, setState] = useState<AppState>(initialState);
   const [isHydrating, setIsHydrating] = useState(true);
-  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
-  const [activeLessonRef, setActiveLessonRef] = useState<ActiveLessonRef | null>(null);
-  const [lessonStepIndex, setLessonStepIndex] = useState(0);
-  const [lessonAnswer, setLessonAnswer] = useState('');
-  const [lessonFeedback, setLessonFeedback] = useState<string | null>(null);
-  const [lessonCompleted, setLessonCompleted] = useState(false);
-  const [lessonMistakes, setLessonMistakes] = useState(0);
-  const [lessonEarnedPoints, setLessonEarnedPoints] = useState(0);
-  const [lastIncorrectExercise, setLastIncorrectExercise] = useState<Exercise | null>(null);
-  const [similarExercise, setSimilarExercise] = useState<Exercise | null>(null);
-  const [isSimilarExerciseMode, setIsSimilarExerciseMode] = useState(false);
+  const goToScreen = (screen: ScreenId) => {
+    setState((current) => ({ ...current, currentScreen: screen }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +83,7 @@ export default function App() {
             topicProgress: normalizedTopicProgress,
             practiceStreak: storedState.practiceStreak ?? initialState.practiceStreak,
             totalPoints: storedState.totalPoints ?? 0,
+            lessonHistory: storedState.lessonHistory ?? initialState.lessonHistory,
           });
         }
       } catch (error) {
@@ -129,24 +125,12 @@ export default function App() {
 
   const selectedSubject = subjects.find((subject) => subject.id === state.selectedSubjectId);
   const selectedGoal = goalOptions.find((goal) => goal.id === state.selectedGoalId);
-  const selectedTopic = selectedTopicId ? starterTopics.find((topic) => topic.id === selectedTopicId) ?? null : null;
-  const selectedTopicLessons = selectedTopicId ? starterLessonsByTopicId[selectedTopicId] ?? [] : [];
-  const activeLessonTopicId = activeLessonRef?.topicId ?? null;
-  const activeLessonList = activeLessonTopicId ? starterLessonsByTopicId[activeLessonTopicId] ?? [] : [];
-  const activeLesson =
-    activeLessonRef && activeLessonList[activeLessonRef.lessonIndex]
-      ? activeLessonList[activeLessonRef.lessonIndex]
-      : null;
-  const activeExercise = activeLesson?.exercises[lessonStepIndex] ?? null;
-  const progressEntries = getProgressEntries(state.topicProgress);
+  const progressEntries = getProgressEntriesDomain(state.topicProgress);
   const completedTopicsCount = progressEntries.filter((progress) => progress.completedLessons > 0).length;
   const completedLessonsCount = progressEntries.reduce((sum, progress) => sum + progress.completedLessons, 0);
   const masteredTopicsCount = progressEntries.filter((progress) => progress.completedLessons >= progress.totalLessons).length;
   const totalAvailableLessons = filteredTopics.reduce((sum, topic) => sum + topic.lessonCount, 0);
-
-  const goToScreen = (screen: ScreenId) => {
-    setState((current) => ({ ...current, currentScreen: screen }));
-  };
+  const weeklySummary = getWeeklySummaryDomain(state.lessonHistory, starterTopics);
 
   const updateParentField = (value: string) => {
     setState((current) => ({
@@ -170,18 +154,39 @@ export default function App() {
     setState((current) => ({ ...current, selectedSubjectId: subjectId }));
   };
 
-  const resetLessonState = () => {
-    setActiveLessonRef(null);
-    setLessonStepIndex(0);
-    setLessonAnswer('');
-    setLessonFeedback(null);
-    setLessonCompleted(false);
-    setLessonMistakes(0);
-    setLessonEarnedPoints(0);
-    setLastIncorrectExercise(null);
-    setSimilarExercise(null);
-    setIsSimilarExerciseMode(false);
-  };
+  const {
+    activeLesson,
+    activeLessonList,
+    activeLessonRef,
+    activeLessonTopicId,
+    displayedExercise,
+    isSimilarExerciseMode,
+    lastIncorrectExercise,
+    leaveLesson,
+    lessonAnswer,
+    lessonCompleted,
+    lessonEarnedPoints,
+    lessonFeedback,
+    lessonStepIndex,
+    openTopicDetails,
+    resetLessonState,
+    returnToExerciseFromError,
+    selectedTopicId,
+    setLessonAnswer,
+    setSelectedTopicId,
+    startLesson,
+    startSimilarExercise,
+    submitLessonAnswer,
+  } = useLessonSession({
+    currentScreen: state.currentScreen,
+    isHydrating,
+    topicProgress: state.topicProgress,
+    setCurrentScreen: goToScreen,
+    updateAppState: (updater) => setState((current) => updater(current)),
+  });
+
+  const selectedTopic = selectedTopicId ? starterTopics.find((topic) => topic.id === selectedTopicId) ?? null : null;
+  const selectedTopicLessons = selectedTopicId ? starterLessonsByTopicId[selectedTopicId] ?? [] : [];
 
   const resetOnboarding = () => {
     setState(initialState);
@@ -189,149 +194,6 @@ export default function App() {
     resetLessonState();
   };
 
-  const openTopicDetails = (topicId: string) => {
-    setSelectedTopicId(topicId);
-    resetLessonState();
-    goToScreen('topicDetails');
-  };
-
-  const startLesson = (topicId: string, lessonIndex?: number) => {
-    const lessons = starterLessonsByTopicId[topicId];
-
-    if (!lessons || lessons.length === 0) {
-      return;
-    }
-
-    const safeLessonIndex = Math.min(
-      typeof lessonIndex === 'number' ? lessonIndex : getNextLessonIndex(topicId, state.topicProgress, lessons.length),
-      lessons.length - 1,
-    );
-
-    setSelectedTopicId(topicId);
-    setActiveLessonRef({
-      topicId,
-      lessonIndex: safeLessonIndex,
-    });
-    setLessonStepIndex(0);
-    setLessonAnswer('');
-    setLessonFeedback(null);
-    setLessonCompleted(false);
-    setLastIncorrectExercise(null);
-    setSimilarExercise(null);
-    setIsSimilarExerciseMode(false);
-    goToScreen('lesson');
-  };
-
-  const leaveLesson = () => {
-    resetLessonState();
-    if (selectedTopicId) {
-      goToScreen('topicDetails');
-      return;
-    }
-
-    goToScreen('home');
-  };
-
-  const returnToExerciseFromError = () => {
-    setLessonAnswer('');
-    goToScreen('lesson');
-  };
-
-  const startSimilarExercise = () => {
-    if (!lastIncorrectExercise) {
-      returnToExerciseFromError();
-      return;
-    }
-
-    setSimilarExercise(createSimilarExercise(lastIncorrectExercise));
-    setIsSimilarExerciseMode(true);
-    setLessonAnswer('');
-    setLessonFeedback('Попробуем ещё одно похожее задание, чтобы закрепить навык.');
-    goToScreen('lesson');
-  };
-
-  const normalizeAnswer = (value: string) => value.trim().toLowerCase();
-
-  const markTopicLessonCompleted = (topicId: string, earnedPoints: number) => {
-    const lessons = starterLessonsByTopicId[topicId];
-
-    if (!lessons) {
-      return;
-    }
-
-    setState((current) => {
-      const currentProgress = current.topicProgress[topicId];
-      const nextCompletedLessons = Math.min((currentProgress?.completedLessons ?? 0) + 1, lessons.length);
-
-      return {
-        ...current,
-        topicProgress: {
-          ...current.topicProgress,
-          [topicId]: {
-            topicId,
-            totalLessons: lessons.length,
-            completedLessons: nextCompletedLessons,
-            lastCompletedAt: new Date().toISOString(),
-            pointsEarned: (currentProgress?.pointsEarned ?? 0) + earnedPoints,
-          },
-        },
-        practiceStreak: getNextPracticeStreak(current.practiceStreak),
-        totalPoints: current.totalPoints + earnedPoints,
-      };
-    });
-  };
-
-  const submitLessonAnswer = () => {
-    const exerciseToCheck = isSimilarExerciseMode ? similarExercise : activeExercise;
-
-    if (!exerciseToCheck) {
-      return;
-    }
-
-    const expectedAnswer = normalizeAnswer(exerciseToCheck.answer);
-    const currentAnswer = normalizeAnswer(lessonAnswer);
-
-    if (!currentAnswer) {
-      setLessonFeedback('Сначала выбери или введи ответ.');
-      return;
-    }
-
-    if (currentAnswer === expectedAnswer) {
-      if (isSimilarExerciseMode) {
-        setIsSimilarExerciseMode(false);
-        setSimilarExercise(null);
-        setLessonAnswer('');
-        setLessonFeedback('Отлично! Похожее задание получилось. Теперь можно вернуться к основному вопросу.');
-        goToScreen('lessonError');
-        return;
-      }
-
-      const nextStep = lessonStepIndex + 1;
-
-      if (activeLesson && activeLessonTopicId && nextStep >= activeLesson.exercises.length) {
-        const earnedPoints = calculateLessonPoints(activeLesson.exercises.length, lessonMistakes);
-        markTopicLessonCompleted(activeLessonTopicId, earnedPoints);
-        setLessonEarnedPoints(earnedPoints);
-        setLessonCompleted(true);
-        setLessonFeedback('Отлично! Урок завершён без ошибок.');
-      } else {
-        setLessonStepIndex(nextStep);
-        setLessonAnswer('');
-        setLessonFeedback('Верно! Переходим к следующему заданию.');
-      }
-
-      return;
-    }
-
-    setLessonMistakes((current) => current + 1);
-    setLastIncorrectExercise(exerciseToCheck);
-    setSimilarExercise(createSimilarExercise(exerciseToCheck));
-    setLessonFeedback(`Пока мимо. Подсказка: ${exerciseToCheck.hint}`);
-    setIsSimilarExerciseMode(false);
-    goToScreen('lessonError');
-  };
-
-  const displayedExercise = isSimilarExerciseMode ? similarExercise : activeExercise;
   const canContinueFromAuth = state.parent.emailOrPhone.trim().length >= 5;
   const canContinueFromChild = state.child.name.trim().length >= 2;
 
@@ -586,15 +448,15 @@ export default function App() {
                 filteredTopics.map((topic) => {
                   const lessons = starterLessonsByTopicId[topic.id] ?? [];
                   const completedLessons = state.topicProgress[topic.id]?.completedLessons ?? 0;
-                  const nextLessonIndex = getNextLessonIndex(topic.id, state.topicProgress, lessons.length);
+                  const nextLessonIndex = getNextLessonIndexDomain(topic.id, state.topicProgress, lessons.length);
 
                   return (
                     <TopicCard
                       key={topic.id}
                       topic={topic}
                       hasLesson={lessons.length > 0}
-                      progressLabel={getTopicProgressLabel(topic, completedLessons)}
-                      nextLessonLabel={getNextLessonLabel(lessons.length, nextLessonIndex, completedLessons)}
+                      progressLabel={getTopicProgressLabelDomain(topic, completedLessons)}
+                      nextLessonLabel={getNextLessonLabelDomain(lessons.length, nextLessonIndex, completedLessons)}
                       onOpenTopic={() => openTopicDetails(topic.id)}
                     />
                   );
@@ -631,13 +493,16 @@ export default function App() {
             <View style={styles.summaryCard}>
               <Text style={styles.summaryTitle}>Маршрут по теме</Text>
               <Text style={styles.summaryText}>
-                Пройдено: {state.topicProgress[selectedTopicId ?? '']?.completedLessons ?? 0} из{' '}
-                {selectedTopicLessons.length}
+                Пройдено: {getTopicProgressPercentDomain(
+                  state.topicProgress[selectedTopicId ?? '']?.completedLessons ?? 0,
+                  selectedTopicLessons.length,
+                )}
+                % ({state.topicProgress[selectedTopicId ?? '']?.completedLessons ?? 0} из {selectedTopicLessons.length})
               </Text>
               <Text style={styles.summaryText}>
-                {getNextLessonLabel(
+                {getNextLessonLabelDomain(
                   selectedTopicLessons.length,
-                  getNextLessonIndex(selectedTopicId ?? '', state.topicProgress, selectedTopicLessons.length),
+                  getNextLessonIndexDomain(selectedTopicId ?? '', state.topicProgress, selectedTopicLessons.length),
                   state.topicProgress[selectedTopicId ?? '']?.completedLessons ?? 0,
                 )}
               </Text>
@@ -697,12 +562,88 @@ export default function App() {
 
             <View style={styles.streakBanner}>
               <Text style={styles.summaryTitle}>Ритм дня</Text>
-              <Text style={styles.summaryText}>{getStreakMessage(state.practiceStreak, completedLessonsCount)}</Text>
+              <Text style={styles.summaryText}>{getStreakMessageDomain(state.practiceStreak, completedLessonsCount)}</Text>
+            </View>
+
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Сводка за 7 дней</Text>
+              <Text style={styles.summaryText}>Занятий: {weeklySummary.lessonCount}</Text>
+              <Text style={styles.summaryText}>Тем в работе: {weeklySummary.topicCount}</Text>
+              <Text style={styles.summaryText}>Ошибок за неделю: {weeklySummary.totalMistakes}</Text>
+              <Text style={styles.summaryText}>Баллов за неделю: {weeklySummary.totalPoints}</Text>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Темы за неделю</Text>
+              {weeklySummary.studiedTopics.length > 0 ? (
+                weeklySummary.studiedTopics.map((topic) => (
+                  <View key={topic.topicId} style={styles.achievementCard}>
+                    <Text style={styles.choiceTitle}>{topic.title}</Text>
+                    <Text style={styles.choiceText}>Занятий: {topic.lessonCount}</Text>
+                    <Text style={styles.choiceText}>Ошибок: {topic.mistakeCount}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.choiceTitle}>За эту неделю занятий ещё не было</Text>
+                  <Text style={styles.choiceText}>После первых завершённых уроков здесь появится родительская сводка.</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Где было сложнее всего</Text>
+              <View style={styles.errorCard}>
+                <Text style={styles.summaryTitle}>
+                  {weeklySummary.hardestTopic ? weeklySummary.hardestTopic.title : 'Пока нет данных'}
+                </Text>
+                <Text style={styles.summaryText}>
+                  {weeklySummary.hardestTopic
+                    ? `Ошибок: ${weeklySummary.hardestTopic.mistakeCount}, занятий: ${weeklySummary.hardestTopic.lessonCount}`
+                    : 'Когда появятся завершённые занятия с ошибками, здесь будет видно, что стоит повторить дома.'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Слабые темы</Text>
+              {weeklySummary.weakTopics.length > 0 ? (
+                weeklySummary.weakTopics.map((topic) => (
+                  <View key={topic.topicId} style={styles.errorCard}>
+                    <Text style={styles.summaryTitle}>{topic.title}</Text>
+                    <Text style={styles.summaryText}>
+                      Ошибок: {topic.mistakeCount}, занятий: {topic.lessonCount}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.choiceTitle}>Слабых тем за неделю не найдено</Text>
+                  <Text style={styles.choiceText}>Когда появятся ошибки в занятиях, здесь будет список тем для повторения.</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Что повторить дома</Text>
+              {weeklySummary.recommendations.length > 0 ? (
+                weeklySummary.recommendations.map((item) => (
+                  <View key={item.topicId} style={styles.achievementCard}>
+                    <Text style={styles.choiceTitle}>{item.title}</Text>
+                    <Text style={styles.choiceText}>{item.text}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.choiceTitle}>Рекомендации появятся позже</Text>
+                  <Text style={styles.choiceText}>После нескольких завершённых уроков сможем советовать, что лучше повторить дома.</Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Достижения</Text>
-              {getAchievements(
+              {getAchievementsDomain(
                 completedLessonsCount,
                 completedTopicsCount,
                 masteredTopicsCount,
@@ -722,9 +663,13 @@ export default function App() {
                   key={topic.id}
                   topic={topic}
                   progress={state.topicProgress[topic.id]}
-                  nextLessonLabel={getNextLessonLabel(
+                  nextLessonLabel={getNextLessonLabelDomain(
                     starterLessonsByTopicId[topic.id]?.length ?? 0,
-                    getNextLessonIndex(topic.id, state.topicProgress, starterLessonsByTopicId[topic.id]?.length ?? 0),
+                    getNextLessonIndexDomain(
+                      topic.id,
+                      state.topicProgress,
+                      starterLessonsByTopicId[topic.id]?.length ?? 0,
+                    ),
                     state.topicProgress[topic.id]?.completedLessons ?? 0,
                   )}
                 />
@@ -932,20 +877,21 @@ interface ProgressHistoryRowProps {
 }
 
 function ProgressHistoryRow({ topic, progress, nextLessonLabel }: ProgressHistoryRowProps) {
+  const completedLessons = progress?.completedLessons ?? 0;
+  const progressPercent = getTopicProgressPercentDomain(completedLessons, topic.lessonCount);
+
   return (
     <View style={styles.historyRow}>
       <View style={styles.historyRowTop}>
         <Text style={styles.choiceTitle}>{topic.title}</Text>
-        <Text style={styles.historyBadge}>
-          {progress?.completedLessons ?? 0}/{topic.lessonCount}
-        </Text>
+        <Text style={styles.historyBadge}>{progressPercent}%</Text>
       </View>
-      <Text style={styles.choiceText}>{getTopicProgressLabel(topic, progress?.completedLessons ?? 0)}</Text>
+      <Text style={styles.choiceText}>{getTopicProgressLabelDomain(topic, completedLessons)}</Text>
       <Text style={styles.historyDateText}>Баллы по теме: {progress?.pointsEarned ?? 0}</Text>
       <Text style={styles.historyDateText}>{nextLessonLabel}</Text>
       <Text style={styles.historyDateText}>
         {progress?.lastCompletedAt
-          ? `Последнее завершение: ${formatDate(progress.lastCompletedAt)}`
+          ? `Последнее завершение: ${formatDateDomain(progress.lastCompletedAt)}`
           : 'Завершённых уроков пока нет'}
       </Text>
     </View>
@@ -975,6 +921,50 @@ function LessonExercise({ exercise, answer, onChangeAnswer }: LessonExerciseProp
     );
   }
 
+  if (exercise.type === 'matching') {
+    const selectedPairs = parseMatchingAnswer(answer);
+    const pairs = exercise.pairs ?? [];
+    const rightOptions = Array.from(new Set(pairs.map((pair) => pair.right)));
+
+    return (
+      <View style={styles.section}>
+        <Text style={styles.label}>Соедини пары</Text>
+        {pairs.map((pair) => {
+          const currentValue = selectedPairs[pair.id] ?? null;
+
+          return (
+            <View key={pair.id} style={styles.matchingRow}>
+              <View style={styles.matchingPrompt}>
+                <Text style={styles.choiceTitle}>{pair.left}</Text>
+              </View>
+              <View style={styles.matchingOptions}>
+                {rightOptions.map((option) => {
+                  const selected = currentValue === option;
+
+                  return (
+                    <Pressable
+                      key={`${pair.id}-${option}`}
+                      style={[styles.matchingOption, selected && styles.matchingOptionSelected]}
+                      onPress={() => {
+                        const nextValue = serializeMatchingAnswer({
+                          ...selectedPairs,
+                          [pair.id]: option,
+                        });
+                        onChangeAnswer(nextValue);
+                      }}
+                    >
+                      <Text style={styles.choiceText}>{option}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.label}>Выбери ответ</Text>
@@ -995,144 +985,20 @@ function LessonExercise({ exercise, answer, onChangeAnswer }: LessonExerciseProp
   );
 }
 
-function getTopicProgressLabel(topic: Topic, completedLessons: number) {
-  if (completedLessons <= 0) {
-    return `Прогресс: 0 из ${topic.lessonCount}`;
+function parseMatchingAnswer(value: string) {
+  if (!value) {
+    return {} as Record<string, string>;
   }
 
-  if (completedLessons >= topic.lessonCount) {
-    return 'Прогресс: тема полностью пройдена';
+  try {
+    return JSON.parse(value) as Record<string, string>;
+  } catch {
+    return {} as Record<string, string>;
   }
-
-  return `Прогресс: ${completedLessons} из ${topic.lessonCount}`;
 }
 
-function getNextLessonIndex(topicId: string, topicProgress: Record<string, TopicProgress>, lessonCount: number) {
-  if (lessonCount <= 0) {
-    return 0;
-  }
-
-  const completedLessons = topicProgress[topicId]?.completedLessons ?? 0;
-  return Math.min(completedLessons, lessonCount - 1);
-}
-
-function getNextLessonLabel(lessonCount: number, nextLessonIndex: number, completedLessons: number) {
-  if (lessonCount <= 0) {
-    return 'Уроки скоро появятся';
-  }
-
-  if (completedLessons >= lessonCount) {
-    return 'Все уроки в теме уже пройдены';
-  }
-
-  return `Следующий урок: ${nextLessonIndex + 1} из ${lessonCount}`;
-}
-
-function getProgressEntries(topicProgress: Record<string, TopicProgress>) {
-  return Object.values(topicProgress).sort((left, right) => {
-    const leftTime = left.lastCompletedAt ? Date.parse(left.lastCompletedAt) : 0;
-    const rightTime = right.lastCompletedAt ? Date.parse(right.lastCompletedAt) : 0;
-
-    return rightTime - leftTime;
-  });
-}
-
-function calculateLessonPoints(exerciseCount: number, mistakeCount: number) {
-  const basePoints = exerciseCount * 10;
-  const penalty = mistakeCount * 3;
-  return Math.max(5, basePoints - penalty);
-}
-
-function getNextPracticeStreak(practiceStreak: PracticeStreak): PracticeStreak {
-  const today = getCalendarDateKey(new Date());
-  const lastCompletedOn = practiceStreak.lastCompletedOn;
-
-  if (lastCompletedOn === today) {
-    return practiceStreak;
-  }
-
-  const yesterday = getCalendarDateKey(getDateWithOffset(new Date(), -1));
-  const nextCurrentDays = lastCompletedOn === yesterday ? practiceStreak.currentDays + 1 : 1;
-
-  return {
-    currentDays: nextCurrentDays,
-    bestDays: Math.max(practiceStreak.bestDays, nextCurrentDays),
-    lastCompletedOn: today,
-  };
-}
-
-function getAchievements(
-  completedLessonsCount: number,
-  completedTopicsCount: number,
-  masteredTopicsCount: number,
-  currentStreakDays: number,
-) {
-  const achievements = [];
-
-  achievements.push({
-    title: completedLessonsCount > 0 ? 'Первый шаг сделан' : 'Старт впереди',
-    description:
-      completedLessonsCount > 0
-        ? 'Ребёнок уже прошёл хотя бы один урок и начал собирать свою траекторию.'
-        : 'Как только будет завершён первый урок, здесь появится первая отметка прогресса.',
-  });
-
-  achievements.push({
-    title: currentStreakDays >= 3 ? 'Серия держится' : 'Собираем streak',
-    description:
-      currentStreakDays >= 3
-        ? 'Несколько дней подряд уже закрыты, значит привычка начинает закрепляться.'
-        : 'Ежедневные короткие занятия помогут быстрее добраться до устойчивой серии.',
-  });
-
-  achievements.push({
-    title: masteredTopicsCount > 0 ? 'Тема закрыта' : 'До первой закрытой темы',
-    description:
-      masteredTopicsCount > 0
-        ? 'Есть хотя бы одна тема, в которой весь стартовый набор уроков уже пройден.'
-        : 'Когда все уроки в теме будут завершены, здесь появится новое достижение.',
-  });
-
-  achievements.push({
-    title: completedTopicsCount >= 2 ? 'Движение по темам' : 'Фокус на одной теме',
-    description:
-      completedTopicsCount >= 2
-        ? 'Получается учиться сразу в нескольких направлениях без потери ритма.'
-        : 'Сейчас обучение сосредоточено на небольшой зоне, и для MVP это хороший темп.',
-  });
-
-  return achievements;
-}
-
-function getStreakMessage(practiceStreak: PracticeStreak, completedLessonsCount: number) {
-  if (completedLessonsCount === 0) {
-    return 'После первого завершённого урока здесь начнётся серия ежедневной практики.';
-  }
-
-  if (practiceStreak.currentDays <= 1) {
-    return 'Серия уже запущена. Следующее занятие завтра поможет превратить старт в привычку.';
-  }
-
-  return `Серия держится уже ${practiceStreak.currentDays} дн. Ещё один день подряд укрепит ритм.`;
-}
-
-function getCalendarDateKey(value: Date) {
-  return value.toISOString().slice(0, 10);
-}
-
-function getDateWithOffset(value: Date, offsetDays: number) {
-  const next = new Date(value);
-  next.setDate(next.getDate() + offsetDays);
-  return next;
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+function serializeMatchingAnswer(value: Record<string, string>) {
+  return JSON.stringify(value);
 }
 
 const styles = StyleSheet.create({
@@ -1300,6 +1166,34 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
     fontSize: 14,
     lineHeight: 20,
+  },
+  matchingRow: {
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: 'rgba(15, 23, 42, 0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.16)',
+    gap: 12,
+  },
+  matchingPrompt: {
+    gap: 6,
+  },
+  matchingOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  matchingOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(51, 65, 85, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.16)',
+  },
+  matchingOptionSelected: {
+    borderColor: '#38bdf8',
+    backgroundColor: 'rgba(8, 47, 73, 0.72)',
   },
   summaryCard: {
     borderRadius: 20,
