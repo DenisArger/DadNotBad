@@ -4,6 +4,9 @@ mobile/.claude/
 mobile/AGENTS.md
 mobile/CLAUDE.md
 mobile/node_modules/
+mobile/.yarn/*
+!mobile/.yarn/releases/
+!mobile/.yarn/plugins/
 mobile/package-lock.json
 !mobile/yarn.lock
 *.log
