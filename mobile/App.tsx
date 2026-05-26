@@ -2,9 +2,9 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { goalOptions, starterTopics, subjects } from './src/domain/content';
+import { goalOptions, starterLessonByTopicId, starterTopics, subjects } from './src/domain/content';
 import { loadAppState, saveAppState } from './src/domain/storage';
-import { AppState, GoalId, ScreenId, SubjectId } from './src/domain/types';
+import { AppState, Exercise, GoalId, ScreenId, SubjectId } from './src/domain/types';
 
 const initialState: AppState = {
   currentScreen: 'welcome',
@@ -20,11 +20,16 @@ const initialState: AppState = {
   selectedGoalId: 'daily-5',
 };
 
-const screenOrder: ScreenId[] = ['welcome', 'parentAuth', 'childProfile', 'learningPreferences', 'home'];
+const screenOrder: ScreenId[] = ['welcome', 'parentAuth', 'childProfile', 'learningPreferences', 'home', 'lesson'];
 
 export default function App() {
   const [state, setState] = useState<AppState>(initialState);
   const [isHydrating, setIsHydrating] = useState(true);
+  const [activeLessonTopicId, setActiveLessonTopicId] = useState<string | null>(null);
+  const [lessonStepIndex, setLessonStepIndex] = useState(0);
+  const [lessonAnswer, setLessonAnswer] = useState('');
+  const [lessonFeedback, setLessonFeedback] = useState<string | null>(null);
+  const [lessonCompleted, setLessonCompleted] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +80,8 @@ export default function App() {
 
   const selectedSubject = subjects.find((subject) => subject.id === state.selectedSubjectId);
   const selectedGoal = goalOptions.find((goal) => goal.id === state.selectedGoalId);
+  const activeLesson = activeLessonTopicId ? starterLessonByTopicId[activeLessonTopicId] : null;
+  const activeExercise = activeLesson?.exercises[lessonStepIndex] ?? null;
 
   const goToScreen = (screen: ScreenId) => {
     setState((current) => ({ ...current, currentScreen: screen }));
@@ -104,6 +111,62 @@ export default function App() {
 
   const resetOnboarding = () => {
     setState(initialState);
+    resetLessonState();
+  };
+
+  const resetLessonState = () => {
+    setActiveLessonTopicId(null);
+    setLessonStepIndex(0);
+    setLessonAnswer('');
+    setLessonFeedback(null);
+    setLessonCompleted(false);
+  };
+
+  const startLesson = (topicId: string) => {
+    setActiveLessonTopicId(topicId);
+    setLessonStepIndex(0);
+    setLessonAnswer('');
+    setLessonFeedback(null);
+    setLessonCompleted(false);
+    goToScreen('lesson');
+  };
+
+  const normalizeAnswer = (value: string) => value.trim().toLowerCase();
+
+  const submitLessonAnswer = () => {
+    if (!activeExercise) {
+      return;
+    }
+
+    const expectedAnswer = normalizeAnswer(activeExercise.answer);
+    const currentAnswer = normalizeAnswer(lessonAnswer);
+
+    if (!currentAnswer) {
+      setLessonFeedback('Сначала выбери или введи ответ.');
+      return;
+    }
+
+    if (currentAnswer === expectedAnswer) {
+      const nextStep = lessonStepIndex + 1;
+
+      if (activeLesson && nextStep >= activeLesson.exercises.length) {
+        setLessonCompleted(true);
+        setLessonFeedback('Отлично! Урок завершён без ошибок.');
+      } else {
+        setLessonStepIndex(nextStep);
+        setLessonAnswer('');
+        setLessonFeedback('Верно! Переходим к следующему заданию.');
+      }
+
+      return;
+    }
+
+    setLessonFeedback(`Пока мимо. Подсказка: ${activeExercise.hint}`);
+  };
+
+  const leaveLesson = () => {
+    resetLessonState();
+    goToScreen('home');
   };
 
   const canContinueFromAuth = state.parent.emailOrPhone.trim().length >= 5;
@@ -339,18 +402,26 @@ export default function App() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Стартовый каталог тем</Text>
               {filteredTopics.length > 0 ? (
-                filteredTopics.map((topic) => (
-                  <View key={topic.id} style={styles.topicCard}>
-                    <Text style={styles.choiceTitle}>{topic.title}</Text>
-                    <Text style={styles.choiceText}>{topic.lessonCount} коротких уроков в стартовом наборе</Text>
-                  </View>
-                ))
+                filteredTopics.map((topic) => {
+                  const hasLesson = Boolean(starterLessonByTopicId[topic.id]);
+
+                  return (
+                    <View key={topic.id} style={styles.topicCard}>
+                      <Text style={styles.choiceTitle}>{topic.title}</Text>
+                      <Text style={styles.choiceText}>{topic.lessonCount} коротких уроков в стартовом наборе</Text>
+                      {hasLesson ? (
+                        <Pressable style={styles.topicButton} onPress={() => startLesson(topic.id)}>
+                          <Text style={styles.topicButtonText}>Начать первый урок</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                })
               ) : (
                 <View style={styles.emptyState}>
                   <Text style={styles.choiceTitle}>Контент для этого класса ещё готовится</Text>
                   <Text style={styles.choiceText}>
-                    Это пустое состояние из Sprint 1: пользователь видит понятное сообщение, а не пустой
-                    экран.
+                    Это пустое состояние из Sprint 1: пользователь видит понятное сообщение, а не пустой экран.
                   </Text>
                 </View>
               )}
@@ -366,9 +437,113 @@ export default function App() {
             </View>
           </>
         ) : null}
+
+        {state.currentScreen === 'lesson' ? (
+          <>
+            <Text style={styles.title}>{activeLesson?.title ?? 'Первый урок'}</Text>
+            <Text style={styles.subtitle}>
+              {lessonCompleted
+                ? 'Урок завершён. Можно вернуться на домашний экран и выбрать следующую тему.'
+                : `Короткая практика на ${activeLesson?.durationLabel ?? '5 минут'} с моментальной проверкой.`}
+            </Text>
+
+            {!lessonCompleted && activeExercise ? (
+              <>
+                <View style={styles.summaryCard}>
+                  <Text style={styles.summaryTitle}>
+                    Задание {lessonStepIndex + 1} из {activeLesson?.exercises.length ?? 0}
+                  </Text>
+                  <Text style={styles.summaryText}>{activeExercise.prompt}</Text>
+                </View>
+
+                <LessonExercise
+                  exercise={activeExercise}
+                  answer={lessonAnswer}
+                  onChangeAnswer={setLessonAnswer}
+                />
+
+                {lessonFeedback ? <Text style={styles.feedbackText}>{lessonFeedback}</Text> : null}
+
+                <View style={styles.actions}>
+                  <Pressable style={styles.buttonSecondary} onPress={leaveLesson}>
+                    <Text style={styles.buttonSecondaryText}>Выйти из урока</Text>
+                  </Pressable>
+                  <Pressable style={styles.buttonPrimary} onPress={submitLessonAnswer}>
+                    <Text style={styles.buttonPrimaryText}>Проверить ответ</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+
+            {lessonCompleted ? (
+              <>
+                <View style={styles.summaryCard}>
+                  <Text style={styles.summaryTitle}>Урок пройден</Text>
+                  <Text style={styles.summaryText}>
+                    {state.child.name || 'Ребёнок'} завершил первый сценарий занятия и готов двигаться дальше.
+                  </Text>
+                </View>
+
+                {lessonFeedback ? <Text style={styles.feedbackText}>{lessonFeedback}</Text> : null}
+
+                <View style={styles.actions}>
+                  <Pressable style={styles.buttonSecondary} onPress={() => startLesson(activeLessonTopicId ?? '')}>
+                    <Text style={styles.buttonSecondaryText}>Пройти ещё раз</Text>
+                  </Pressable>
+                  <Pressable style={styles.buttonPrimary} onPress={leaveLesson}>
+                    <Text style={styles.buttonPrimaryText}>Вернуться домой</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </>
+        ) : null}
       </View>
       <StatusBar style="light" />
     </ScrollView>
+  );
+}
+
+interface LessonExerciseProps {
+  exercise: Exercise;
+  answer: string;
+  onChangeAnswer: (value: string) => void;
+}
+
+function LessonExercise({ exercise, answer, onChangeAnswer }: LessonExerciseProps) {
+  if (exercise.type === 'text-input') {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.label}>Ответ ребёнка</Text>
+        <TextInput
+          placeholder="Введи ответ"
+          placeholderTextColor="#7c8aa5"
+          style={styles.input}
+          value={answer}
+          onChangeText={onChangeAnswer}
+          keyboardType="number-pad"
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.label}>Выбери ответ</Text>
+      {exercise.options?.map((option) => {
+        const selected = answer === option.id;
+
+        return (
+          <Pressable
+            key={option.id}
+            style={[styles.choiceCard, selected && styles.choiceCardSelected]}
+            onPress={() => onChangeAnswer(option.id)}
+          >
+            <Text style={styles.choiceTitle}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -563,6 +738,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.16)',
     marginBottom: 10,
+    gap: 10,
+  },
+  topicButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(56, 189, 248, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+  },
+  topicButtonText: {
+    color: '#dbeafe',
+    fontSize: 14,
+    fontWeight: '700',
   },
   emptyState: {
     borderRadius: 18,
@@ -571,6 +761,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.16)',
     gap: 8,
+  },
+  feedbackText: {
+    color: '#bae6fd',
+    fontSize: 14,
+    lineHeight: 21,
   },
   actions: {
     flexDirection: 'row',
