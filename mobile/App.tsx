@@ -1,8 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { goalOptions, starterTopics, subjects } from './src/domain/content';
+import { loadAppState, saveAppState } from './src/domain/storage';
 import { AppState, GoalId, ScreenId, SubjectId } from './src/domain/types';
 
 const initialState: AppState = {
@@ -23,6 +24,43 @@ const screenOrder: ScreenId[] = ['welcome', 'parentAuth', 'childProfile', 'learn
 
 export default function App() {
   const [state, setState] = useState<AppState>(initialState);
+  const [isHydrating, setIsHydrating] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateState = async () => {
+      try {
+        const storedState = await loadAppState();
+
+        if (storedState && !cancelled) {
+          setState(storedState);
+        }
+      } catch (error) {
+        console.warn('Failed to load app state', error);
+      } finally {
+        if (!cancelled) {
+          setIsHydrating(false);
+        }
+      }
+    };
+
+    hydrateState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isHydrating) {
+      return;
+    }
+
+    saveAppState(state).catch((error) => {
+      console.warn('Failed to save app state', error);
+    });
+  }, [isHydrating, state]);
 
   const activeStep = screenOrder.indexOf(state.currentScreen) + 1;
   const totalSteps = screenOrder.length;
@@ -64,8 +102,25 @@ export default function App() {
     setState((current) => ({ ...current, selectedSubjectId: subjectId }));
   };
 
+  const resetOnboarding = () => {
+    setState(initialState);
+  };
+
   const canContinueFromAuth = state.parent.emailOrPhone.trim().length >= 5;
   const canContinueFromChild = state.child.name.trim().length >= 2;
+
+  if (isHydrating) {
+    return (
+      <View style={styles.loadingScreen}>
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color="#38bdf8" />
+          <Text style={styles.loadingTitle}>Восстанавливаем прогресс</Text>
+          <Text style={styles.loadingText}>Секунду, загружаем сохранённый онбординг и выбор ребёнка.</Text>
+        </View>
+        <StatusBar style="light" />
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -83,7 +138,7 @@ export default function App() {
           <>
             <Text style={styles.title}>Учебное приложение для детей и родителей</Text>
             <Text style={styles.subtitle}>
-              Начинаем Sprint 1: соберём рабочий онбординг, профиль ребёнка и стартовый каталог тем для
+              Начинаем Sprint 1: собираем рабочий онбординг, профиль ребёнка и стартовый каталог тем для
               первого урока.
             </Text>
 
@@ -305,7 +360,7 @@ export default function App() {
               <Pressable style={styles.buttonSecondary} onPress={() => goToScreen('learningPreferences')}>
                 <Text style={styles.buttonSecondaryText}>Изменить выбор</Text>
               </Pressable>
-              <Pressable style={styles.buttonPrimary} onPress={() => setState(initialState)}>
+              <Pressable style={styles.buttonPrimary} onPress={resetOnboarding}>
                 <Text style={styles.buttonPrimaryText}>Пройти заново</Text>
               </Pressable>
             </View>
@@ -318,6 +373,32 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+    backgroundColor: '#07111f',
+  },
+  loadingCard: {
+    borderRadius: 28,
+    padding: 24,
+    backgroundColor: 'rgba(13, 20, 34, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.18)',
+    gap: 12,
+    alignItems: 'center',
+  },
+  loadingTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  loadingText: {
+    color: '#cbd5e1',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
   container: {
     position: 'relative',
     flexGrow: 1,
