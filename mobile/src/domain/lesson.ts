@@ -12,10 +12,10 @@ export function getTopicProgressLabel(topic: Topic, completedLessons: number) {
   const progressPercent = getTopicProgressPercent(completedLessons, topic.lessonCount);
 
   if (completedLessons >= topic.lessonCount) {
-    return '????????: 100% (???? ????????? ????????)';
+    return 'Прогресс: 100% (все уроки завершены)';
   }
 
-  return `????????: ${progressPercent}% (${completedLessons} ?? ${topic.lessonCount})`;
+  return `Прогресс: ${progressPercent}% (${completedLessons} из ${topic.lessonCount})`;
 }
 
 export function getNextLessonIndex(

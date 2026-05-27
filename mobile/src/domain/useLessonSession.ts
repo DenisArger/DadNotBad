@@ -211,7 +211,7 @@ export function useLessonSession({
     setSimilarExercise(createSimilarExercise(lastIncorrectExercise));
     setIsSimilarExerciseMode(true);
     setLessonAnswer('');
-    setLessonFeedback('РџРѕРїСЂРѕР±СѓРµРј РµС‰С‘ РѕРґРЅРѕ РїРѕС…РѕР¶РµРµ Р·Р°РґР°РЅРёРµ, С‡С‚РѕР±С‹ Р·Р°РєСЂРµРїРёС‚СЊ РЅР°РІС‹Рє.');
+    setLessonFeedback('Попробуем ещё одно похожее задание, чтобы закрепить навык.');
     setCurrentScreen('lesson');
   };
 
@@ -268,7 +268,7 @@ export function useLessonSession({
     const currentAnswer = normalizeExerciseAnswer(exerciseToCheck, lessonAnswer);
 
     if (!currentAnswer) {
-      setLessonFeedback('РЎРЅР°С‡Р°Р»Р° РІС‹Р±РµСЂРё РёР»Рё РІРІРµРґРё РѕС‚РІРµС‚.');
+      setLessonFeedback('Сначала выбери или введи ответ.');
       return;
     }
 
@@ -278,7 +278,7 @@ export function useLessonSession({
         setSimilarExercise(null);
         setLessonAnswer('');
         setLessonFeedback(
-          'РћС‚Р»РёС‡РЅРѕ! РџРѕС…РѕР¶РµРµ Р·Р°РґР°РЅРёРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ. РўРµРїРµСЂСЊ РјРѕР¶РЅРѕ РІРµСЂРЅСѓС‚СЊСЃСЏ Рє РѕСЃРЅРѕРІРЅРѕРјСѓ РІРѕРїСЂРѕСЃСѓ.',
+          'Отлично! Похожее задание получилось. Теперь можно вернуться к основному вопросу.',
         );
         setCurrentScreen('lessonError');
         return;
@@ -291,11 +291,11 @@ export function useLessonSession({
         markTopicLessonCompleted(activeLessonTopicId, earnedPoints);
         setLessonEarnedPoints(earnedPoints);
         setLessonCompleted(true);
-        setLessonFeedback('РћС‚Р»РёС‡РЅРѕ! РЈСЂРѕРє Р·Р°РІРµСЂС€С‘РЅ Р±РµР· РѕС€РёР±РѕРє.');
+        setLessonFeedback('Отлично! Урок завершён без ошибок.');
       } else {
         setLessonStepIndex(nextStep);
         setLessonAnswer('');
-        setLessonFeedback('Р’РµСЂРЅРѕ! РџРµСЂРµС…РѕРґРёРј Рє СЃР»РµРґСѓСЋС‰РµРјСѓ Р·Р°РґР°РЅРёСЋ.');
+        setLessonFeedback('Верно! Переходим к следующему заданию.');
       }
 
       return;
@@ -304,7 +304,7 @@ export function useLessonSession({
     setLessonMistakes((current) => current + 1);
     setLastIncorrectExercise(exerciseToCheck);
     setSimilarExercise(createSimilarExercise(exerciseToCheck));
-    setLessonFeedback(`РџРѕРєР° РјРёРјРѕ. РџРѕРґСЃРєР°Р·РєР°: ${exerciseToCheck.hint}`);
+    setLessonFeedback(`Пока мимо. Подсказка: ${exerciseToCheck.hint}`);
     setIsSimilarExerciseMode(false);
     setCurrentScreen('lessonError');
   };
