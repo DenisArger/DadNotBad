@@ -170,6 +170,7 @@ export default function App() {
     lessonStepIndex,
     openTopicDetails,
     resetLessonState,
+    restoreStoredLessonSession,
     returnToExerciseFromError,
     selectedTopicId,
     setLessonAnswer,
@@ -184,6 +185,16 @@ export default function App() {
     setCurrentScreen: goToScreen,
     updateAppState: (updater) => setState((current) => updater(current)),
   });
+
+  useEffect(() => {
+    if (isHydrating) {
+      return;
+    }
+
+    if ((state.currentScreen === 'lesson' || state.currentScreen === 'lessonError') && !activeLessonRef) {
+      restoreStoredLessonSession();
+    }
+  }, [activeLessonRef, isHydrating, restoreStoredLessonSession, state.currentScreen]);
 
   const selectedTopic = selectedTopicId ? starterTopics.find((topic) => topic.id === selectedTopicId) ?? null : null;
   const selectedTopicLessons = selectedTopicId ? starterLessonsByTopicId[selectedTopicId] ?? [] : [];

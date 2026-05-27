@@ -54,6 +54,7 @@ export function useLessonSession({
   const [similarExercise, setSimilarExercise] = useState<Exercise | null>(initialLessonSession.similarExercise);
   const [isSimilarExerciseMode, setIsSimilarExerciseMode] = useState(initialLessonSession.isSimilarExerciseMode);
   const [storedLessonSession, setStoredLessonSession] = useState<PersistedLessonSession | null>(null);
+  const [hasLoadedStoredLessonSession, setHasLoadedStoredLessonSession] = useState(false);
 
   const activeLessonTopicId = activeLessonRef?.topicId ?? null;
   const activeLessonList = useMemo(
@@ -75,10 +76,14 @@ export function useLessonSession({
       .then((session) => {
         if (!cancelled) {
           setStoredLessonSession(session);
+          setHasLoadedStoredLessonSession(true);
         }
       })
       .catch((error) => {
         console.warn('Failed to load lesson session', error);
+        if (!cancelled) {
+          setHasLoadedStoredLessonSession(true);
+        }
       });
 
     return () => {
@@ -88,6 +93,10 @@ export function useLessonSession({
 
   useEffect(() => {
     if (isHydrating) {
+      return;
+    }
+
+    if (!hasLoadedStoredLessonSession) {
       return;
     }
 
@@ -117,6 +126,7 @@ export function useLessonSession({
   }, [
     activeLessonRef,
     currentScreen,
+    hasLoadedStoredLessonSession,
     hasActiveLessonSession,
     isHydrating,
     isSimilarExerciseMode,
@@ -129,6 +139,28 @@ export function useLessonSession({
     lessonStepIndex,
     selectedTopicId,
     similarExercise,
+  ]);
+
+  useEffect(() => {
+    if (isHydrating || !hasLoadedStoredLessonSession) {
+      return;
+    }
+
+    const isLessonScreen = currentScreen === 'lesson' || currentScreen === 'lessonError';
+
+    if (!isLessonScreen || activeLessonRef || storedLessonSession) {
+      return;
+    }
+
+    setCurrentScreen(selectedTopicId ? 'topicDetails' : 'home');
+  }, [
+    activeLessonRef,
+    currentScreen,
+    hasLoadedStoredLessonSession,
+    isHydrating,
+    selectedTopicId,
+    setCurrentScreen,
+    storedLessonSession,
   ]);
 
   const restoreLessonSession = (session: PersistedLessonSession) => {
