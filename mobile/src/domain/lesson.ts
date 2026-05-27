@@ -133,6 +133,29 @@ export function getWeeklySummary(
   };
 }
 
+export function getRecentLessonActivity(
+  lessonHistory: LessonHistoryEntry[],
+  topics: Topic[],
+  limit = 7,
+) {
+  return [...lessonHistory]
+    .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt))
+    .slice(0, limit)
+    .map((entry) => {
+      const topic = topics.find((item) => item.id === entry.topicId);
+
+      return {
+        id: entry.id,
+        topicId: entry.topicId,
+        topicTitle: topic?.title ?? 'Тема без названия',
+        lessonId: entry.lessonId,
+        completedAt: entry.completedAt,
+        earnedPoints: entry.earnedPoints,
+        mistakeCount: entry.mistakeCount,
+      };
+    });
+}
+
 export function calculateLessonPoints(exerciseCount: number, mistakeCount: number) {
   const basePoints = exerciseCount * 10;
   const penalty = mistakeCount * 3;
